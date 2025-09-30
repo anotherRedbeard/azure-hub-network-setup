@@ -1,0 +1,30 @@
+# Azure deployment outputs
+deployment-output.json
+vpn-configuration.txt
+
+# Bicep generated ARM template files (build output)
+infra/bicep/**/*.json
+!infra/parameters/*.json
+
+# Azure CLI
+.azure/
+
+# VS Code
+.vscode/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+/tmp/
+*.tmp

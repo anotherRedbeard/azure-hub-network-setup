@@ -1,0 +1,174 @@
+name: Deploy Azure Hub Network
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      action:
+        description: 'Deployment action'
+        required: true
+        type: choice
+        options:
+          - deploy
+          - validate
+          - what-if
+        default: validate
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_REGION: eastus
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Bicep templates
+        if: github.event.inputs.action == 'validate' || github.event.inputs.action == 'deploy'
+        run: |
+          echo "Validating Bicep templates..."
+          az bicep build --file infra/bicep/main.bicep
+          az bicep build --file infra/bicep/modules/vnet.bicep
+          az bicep build --file infra/bicep/modules/vpn-gateway.bicep
+          az bicep build --file infra/bicep/modules/dns-resolver.bicep
+
+      - name: Run What-If deployment
+        if: github.event.inputs.action == 'what-if' || github.event.inputs.action == 'deploy'
+        run: |
+          echo "Running What-If deployment..."
+          az deployment sub what-if \
+            --location ${{ env.AZURE_REGION }} \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/parameters/${{ github.event.inputs.environment }}.parameters.json
+
+      - name: Deploy infrastructure
+        if: github.event.inputs.action == 'deploy'
+        id: deploy
+        run: |
+          echo "Deploying infrastructure..."
+          az deployment sub create \
+            --location ${{ env.AZURE_REGION }} \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/parameters/${{ github.event.inputs.environment }}.parameters.json \
+            --name "hub-network-${{ github.event.inputs.environment }}-$(date +%Y%m%d-%H%M%S)" \
+            --output json > deployment-output.json
+          
+          cat deployment-output.json
+
+      - name: Extract VPN Configuration
+        if: github.event.inputs.action == 'deploy'
+        id: vpn-config
+        run: |
+          echo "Extracting VPN configuration..."
+          
+          # Extract outputs from deployment
+          VPN_GATEWAY_NAME=$(jq -r '.properties.outputs.vpnGatewayName.value' deployment-output.json)
+          VPN_GATEWAY_PUBLIC_IP=$(jq -r '.properties.outputs.vpnGatewayPublicIp.value' deployment-output.json)
+          RESOURCE_GROUP_NAME=$(jq -r '.properties.outputs.resourceGroupName.value' deployment-output.json)
+          VNET_NAME=$(jq -r '.properties.outputs.vnetName.value' deployment-output.json)
+          DNS_RESOLVER_INBOUND_IP=$(jq -r '.properties.outputs.dnsResolverInboundEndpointIp.value' deployment-output.json)
+          
+          # Save to environment
+          echo "vpn_gateway_name=$VPN_GATEWAY_NAME" >> $GITHUB_OUTPUT
+          echo "vpn_gateway_public_ip=$VPN_GATEWAY_PUBLIC_IP" >> $GITHUB_OUTPUT
+          echo "resource_group_name=$RESOURCE_GROUP_NAME" >> $GITHUB_OUTPUT
+          echo "vnet_name=$VNET_NAME" >> $GITHUB_OUTPUT
+          echo "dns_resolver_inbound_ip=$DNS_RESOLVER_INBOUND_IP" >> $GITHUB_OUTPUT
+          
+          # Create VPN configuration file
+          cat > vpn-configuration.txt <<EOF
+          ========================================
+          Azure Hub Network VPN Configuration
+          ========================================
+          Environment: ${{ github.event.inputs.environment }}
+          Deployment Date: $(date)
+          
+          VPN Gateway Details:
+          -------------------
+          Gateway Name: $VPN_GATEWAY_NAME
+          Gateway Public IP: $VPN_GATEWAY_PUBLIC_IP
+          Resource Group: $RESOURCE_GROUP_NAME
+          Virtual Network: $VNET_NAME
+          
+          DNS Resolver Details:
+          --------------------
+          Inbound Endpoint IP: $DNS_RESOLVER_INBOUND_IP
+          
+          Next Steps:
+          ----------
+          1. Create a Local Network Gateway for your on-premises network
+          2. Create a VPN Connection between the VPN Gateway and Local Network Gateway
+          3. Configure your on-premises VPN device with the shared key
+          4. Test connectivity between networks
+          
+          Example commands:
+          
+          # Create Local Network Gateway (replace with your values)
+          az network local-gateway create \\
+            --resource-group $RESOURCE_GROUP_NAME \\
+            --name lng-onprem \\
+            --gateway-ip-address <YOUR_ONPREM_PUBLIC_IP> \\
+            --local-address-prefixes <YOUR_ONPREM_ADDRESS_SPACE>
+          
+          # Create VPN Connection
+          az network vpn-connection create \\
+            --resource-group $RESOURCE_GROUP_NAME \\
+            --name cn-hub-to-onprem \\
+            --vnet-gateway1 $VPN_GATEWAY_NAME \\
+            --local-gateway2 lng-onprem \\
+            --shared-key <YOUR_SHARED_KEY>
+          
+          ========================================
+          EOF
+          
+          echo "VPN Configuration saved to vpn-configuration.txt"
+          cat vpn-configuration.txt
+
+      - name: Upload VPN Configuration
+        if: github.event.inputs.action == 'deploy'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-configuration-${{ github.event.inputs.environment }}
+          path: vpn-configuration.txt
+          retention-days: 90
+
+      - name: Summary
+        if: github.event.inputs.action == 'deploy'
+        run: |
+          echo "## Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource Group | ${{ steps.vpn-config.outputs.resource_group_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Virtual Network | ${{ steps.vpn-config.outputs.vnet_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| VPN Gateway | ${{ steps.vpn-config.outputs.vpn_gateway_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| VPN Gateway Public IP | ${{ steps.vpn-config.outputs.vpn_gateway_public_ip }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| DNS Resolver Inbound IP | ${{ steps.vpn-config.outputs.dns_resolver_inbound_ip }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### VPN Configuration 📄" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The VPN configuration has been uploaded as an artifact." >> $GITHUB_STEP_SUMMARY
+          echo "Download it from the workflow run artifacts section." >> $GITHUB_STEP_SUMMARY
