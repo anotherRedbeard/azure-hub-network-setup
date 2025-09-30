@@ -66,6 +66,9 @@ module resourceGroup 'br/public:avm/res/resources/resource-group:0.4.1' = {
 module virtualNetwork 'br/public:avm/res/network/virtual-network:0.7.1' = {
   name: 'vnetDeployment'
   scope: az.resourceGroup(resourceGroupName)
+  dependsOn: [
+    resourceGroup
+  ]
   params: {
     name: 'auto-hub-${environmentName}-vnet'
     location: location
@@ -95,6 +98,9 @@ module virtualNetwork 'br/public:avm/res/network/virtual-network:0.7.1' = {
 module vpnGateway 'br/public:avm/res/network/virtual-network-gateway:0.8.0' = {
   name: 'virtualNetworkGatewayDeployment'
   scope: az.resourceGroup(resourceGroupName)
+  dependsOn: [
+    resourceGroup
+  ]
   params: {
     // Required parameters
     clusterSettings: {
@@ -132,6 +138,9 @@ module vpnGateway 'br/public:avm/res/network/virtual-network-gateway:0.8.0' = {
 module dnsResolver 'br/public:avm/res/network/dns-resolver:0.5.4' = {
   name: 'dnsResolverDeployment'
   scope: az.resourceGroup(resourceGroupName)
+  dependsOn: [
+    resourceGroup
+  ]
   params: {
     // Required parameters
     name: 'auto-hub-${environmentName}-dnspr'
