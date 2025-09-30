@@ -7,6 +7,9 @@ param location string = 'eastus'
 @description('Environment name (e.g., dev, prod)')
 param environmentName string = 'dev'
 
+@description('Microsoft Tenant ID')
+param tenantId string = ''
+
 @description('Resource group name')
 param resourceGroupName string = 'rg-hub-network-${environmentName}'
 
@@ -14,10 +17,19 @@ param resourceGroupName string = 'rg-hub-network-${environmentName}'
 param vnetAddressPrefix string = '10.0.0.0/16'
 
 @description('Gateway subnet address prefix')
+param gatewaySubnetName string = 'GatewaySubnet'
+
+@description('Gateway subnet address prefix')
 param gatewaySubnetPrefix string = '10.0.1.0/24'
 
 @description('DNS resolver inbound subnet prefix')
-param dnsResolverInboundSubnetPrefix string = '10.0.2.0/28'
+param dnsResolverInboundSubnetName string = 'DNSInboundSubnet'
+
+@description('DNS resolver outbound subnet prefix')
+param dnsResolverInboundSubnetPrefix string = '10.0.3.0/28'
+
+@description('DNS resolver inbound subnet prefix')
+param dnsResolverOutboundSubnetName string = 'DNSOutboundSubnet'
 
 @description('DNS resolver outbound subnet prefix')
 param dnsResolverOutboundSubnetPrefix string = '10.0.3.0/28'
@@ -40,61 +52,109 @@ param tags object = {
   Project: 'HubNetwork'
 }
 
-// Create Resource Group
-resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
-  name: resourceGroupName
-  location: location
-  tags: tags
-}
-
-// Deploy Virtual Network with Subnets
-module vnet 'modules/vnet.bicep' = {
-  name: 'vnet-deployment'
-  scope: rg
+module resourceGroup 'br/public:avm/res/resources/resource-group:0.4.1' = {
+  name: 'resourceGroupDeployment'
   params: {
+    // Required parameters
+    name: resourceGroupName
+    // Non-required parameters
     location: location
-    vnetName: 'vnet-hub-${environmentName}'
-    addressPrefix: vnetAddressPrefix
-    gatewaySubnetPrefix: gatewaySubnetPrefix
-    dnsResolverInboundSubnetPrefix: dnsResolverInboundSubnetPrefix
-    dnsResolverOutboundSubnetPrefix: dnsResolverOutboundSubnetPrefix
     tags: tags
   }
 }
 
-// Deploy VPN Gateway
-module vpnGateway 'modules/vpn-gateway.bicep' = {
-  name: 'vpn-gateway-deployment'
-  scope: rg
+module virtualNetwork 'br/public:avm/res/network/virtual-network:0.7.1' = {
+  name: 'vnetDeployment'
+  scope: az.resourceGroup(resourceGroupName)
   params: {
+    name: 'auto-hub-${environmentName}-vnet'
     location: location
-    gatewayName: 'vpngw-hub-${environmentName}'
-    gatewaySku: vpnGatewaySku
-    gatewaySubnetId: vnet.outputs.gatewaySubnetId
+    addressPrefixes: [
+      vnetAddressPrefix
+    ]
+    subnets: [
+      {
+        name: gatewaySubnetName
+        addressPrefix: gatewaySubnetPrefix
+      }
+      {
+        name: dnsResolverInboundSubnetName
+        addressPrefix: dnsResolverInboundSubnetPrefix
+        delegation: 'Microsoft.Network/dnsResolvers'
+      }
+      {
+        name: dnsResolverOutboundSubnetName
+        addressPrefix: dnsResolverOutboundSubnetPrefix
+        delegation: 'Microsoft.Network/dnsResolvers'
+      }
+    ]
     tags: tags
+  }
+}
+
+module vpnGateway 'br/public:avm/res/network/virtual-network-gateway:0.8.0' = {
+  name: 'virtualNetworkGatewayDeployment'
+  scope: az.resourceGroup(resourceGroupName)
+  params: {
+    // Required parameters
+    clusterSettings: {
+      clusterMode: 'activeActiveBgp'
+    }
+    gatewayType: 'Vpn'
+    name: 'auto-hub-${environmentName}-vpngw'
+    virtualNetworkResourceId: virtualNetwork.outputs.resourceId
+    // Non-required parameters
+    allowRemoteVnetTraffic: true
+    disableIPSecReplayProtection: true
+    enableBgpRouteTranslationForNat: true
+    enablePrivateIpAddress: true
+    skuName: vpnGatewaySku
+    tags: tags
+    // Pulled these settings from this document: https://learn.microsoft.com/en-us/azure/vpn-gateway/point-to-site-entra-gateway#configure-vpn
+    vpnClientAadConfiguration: {
+      aadAudience: 'c632b3df-fb67-4d84-bdcf-b95ad541b5c8'
+      aadIssuer: 'https://sts.windows.net/${tenantId}/'
+      aadTenant: 'https://login.microsoftonline.com/${tenantId}'
+      vpnAuthenticationTypes: [
+        'AAD'
+      ]
+      vpnClientProtocols: [
+        'OpenVPN'
+      ]
+    }
+    vpnClientAddressPoolPrefix: '172.16.202.0/24'
+    vpnGatewayGeneration: 'Generation1'
+    vpnType: 'RouteBased'
   }
 }
 
 // Deploy Private DNS Resolver
-module dnsResolver 'modules/dns-resolver.bicep' = {
-  name: 'dns-resolver-deployment'
-  scope: rg
+module dnsResolver 'br/public:avm/res/network/dns-resolver:0.5.4' = {
+  name: 'dnsResolverDeployment'
+  scope: az.resourceGroup(resourceGroupName)
   params: {
+    // Required parameters
+    name: 'auto-hub-${environmentName}-dnspr'
+    virtualNetworkResourceId: virtualNetwork.outputs.resourceId
+    // Non-required parameters
+    inboundEndpoints: [
+      {
+        name: 'auto-hub-${environmentName}-dnspr-in'
+        subnetResourceId: virtualNetwork.outputs.subnetResourceIds[1]
+      }
+    ]
     location: location
-    dnsResolverName: 'dnspr-hub-${environmentName}'
-    vnetId: vnet.outputs.vnetId
-    inboundSubnetId: vnet.outputs.dnsResolverInboundSubnetId
-    outboundSubnetId: vnet.outputs.dnsResolverOutboundSubnetId
     tags: tags
   }
 }
 
 // Outputs
-output resourceGroupName string = rg.name
-output vnetId string = vnet.outputs.vnetId
-output vnetName string = vnet.outputs.vnetName
-output vpnGatewayId string = vpnGateway.outputs.gatewayId
-output vpnGatewayPublicIp string = vpnGateway.outputs.gatewayPublicIp
-output vpnGatewayName string = vpnGateway.outputs.gatewayName
-output dnsResolverName string = dnsResolver.outputs.dnsResolverName
-output dnsResolverInboundEndpointIp string = dnsResolver.outputs.inboundEndpointIp
+output resourceGroupName string = resourceGroup.outputs.name
+output vnetId string = virtualNetwork.outputs.resourceId
+output vnetName string = virtualNetwork.outputs.name
+output vpnGatewayId string = vpnGateway.outputs.resourceId
+//join the possible public IPs into a single comma-separated string
+output vpnGatewayPublicIp string = join([vpnGateway.outputs.primaryPublicIpAddress, vpnGateway.outputs.secondaryPublicIpAddress, vpnGateway.outputs.tertiaryPublicIpAddress], ',')
+output vpnGatewayName string = vpnGateway.outputs.name
+output dnsResolverName string = dnsResolver.outputs.name
+output dnsResolverInboundEndpointIp string = dnsResolver.outputs.inboundEndpointsObject[0].resourceId

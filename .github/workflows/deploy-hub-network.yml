@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 env:
-  AZURE_REGION: eastus
+  AZURE_REGION: canadacentral
 
 jobs:
   deploy-infrastructure:
@@ -49,9 +49,6 @@ jobs:
         run: |
           echo "Validating Bicep templates..."
           az bicep build --file infra/bicep/main.bicep
-          az bicep build --file infra/bicep/modules/vnet.bicep
-          az bicep build --file infra/bicep/modules/vpn-gateway.bicep
-          az bicep build --file infra/bicep/modules/dns-resolver.bicep
 
       - name: Run What-If deployment
         if: github.event.inputs.action == 'what-if' || github.event.inputs.action == 'deploy'
@@ -59,8 +56,8 @@ jobs:
           echo "Running What-If deployment..."
           az deployment sub what-if \
             --location ${{ env.AZURE_REGION }} \
-            --template-file infra/bicep/main.bicep \
-            --parameters infra/parameters/${{ github.event.inputs.environment }}.parameters.json
+            --parameters infra/main.${{ github.event.inputs.environment }}.bicepparam \
+            --parameters tenantId=${{ secrets.AZURE_TENANT_ID }}
 
       - name: Deploy infrastructure
         if: github.event.inputs.action == 'deploy'
@@ -69,8 +66,8 @@ jobs:
           echo "Deploying infrastructure..."
           az deployment sub create \
             --location ${{ env.AZURE_REGION }} \
-            --template-file infra/bicep/main.bicep \
-            --parameters infra/parameters/${{ github.event.inputs.environment }}.parameters.json \
+            --parameters infra/main.${{ github.event.inputs.environment }}.bicepparam \
+            --parameters tenantId=${{ secrets.AZURE_TENANT_ID }} \
             --name "hub-network-${{ github.event.inputs.environment }}-$(date +%Y%m%d-%H%M%S)" \
             --output json > deployment-output.json
           

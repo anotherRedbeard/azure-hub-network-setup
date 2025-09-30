@@ -1,0 +1,19 @@
+using './main.bicep'
+
+param location = 'canadacentral'
+param environmentName = 'dev'
+param resourceGroupName = 'auto-dev-hub-network-rg'
+param vnetAddressPrefix = '10.3.0.0/16'
+param gatewaySubnetName = 'GatewaySubnet'
+param gatewaySubnetPrefix = '10.3.1.0/24'
+param dnsResolverInboundSubnetName = 'DNSInboundSubnet'
+param dnsResolverInboundSubnetPrefix = '10.3.2.0/28'
+param dnsResolverOutboundSubnetName = 'DNSOutboundSubnet'
+param dnsResolverOutboundSubnetPrefix = '10.3.3.0/28'
+param vpnGatewaySku = 'VpnGw1'
+param tags = {
+  Environment: 'dev'
+  ManagedBy: 'Bicep'
+  Pipeline: 'GHActions'
+  Project: 'HubNetwork'
+}
