@@ -48,7 +48,7 @@ jobs:
         if: github.event.inputs.action == 'validate' || github.event.inputs.action == 'deploy'
         run: |
           echo "Validating Bicep templates..."
-          az bicep build --file infra/bicep/main.bicep
+          az bicep build --file ./infra/bicep/main.bicep
 
       - name: Run What-If deployment
         if: github.event.inputs.action == 'what-if' || github.event.inputs.action == 'deploy'
@@ -56,8 +56,8 @@ jobs:
           echo "Running What-If deployment..."
           az deployment sub what-if \
             --location ${{ env.AZURE_REGION }} \
-            --parameters infra/main.${{ github.event.inputs.environment }}.bicepparam \
-            --parameters tenantId=${{ secrets.AZURE_TENANT_ID }}
+            --parameters ./infra/main.${{ github.event.inputs.environment }}.bicepparam \
+            --parameters tenantId=${{ secrets.ENTRA_TENANT_ID }}
 
       - name: Deploy infrastructure
         if: github.event.inputs.action == 'deploy'
@@ -66,8 +66,8 @@ jobs:
           echo "Deploying infrastructure..."
           az deployment sub create \
             --location ${{ env.AZURE_REGION }} \
-            --parameters infra/main.${{ github.event.inputs.environment }}.bicepparam \
-            --parameters tenantId=${{ secrets.AZURE_TENANT_ID }} \
+            --parameters ./infra/main.${{ github.event.inputs.environment }}.bicepparam \
+            --parameters tenantId=${{ secrets.ENTRA_TENANT_ID }} \
             --name "hub-network-${{ github.event.inputs.environment }}-$(date +%Y%m%d-%H%M%S)" \
             --output json > deployment-output.json
           
