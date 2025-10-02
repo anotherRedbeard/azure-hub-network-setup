@@ -170,9 +170,18 @@ module dnsResolver 'br/public:avm/res/network/dns-resolver:0.5.4' = {
 module privateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = [for dnsZone in dnsZones: {
   name: 'privateDnsZoneDeployment-${dnsZone}'
   scope: az.resourceGroup(resourceGroupName)
+  dependsOn: [
+    virtualNetwork
+  ]
   params: {
     name: dnsZone
     location: 'global'
+    virtualNetworkLinks: [
+      {
+        registrationEnabled: true
+        virtualNetworkResourceId: virtualNetwork.outputs.resourceId
+      }
+    ]
   }
 }]
 
