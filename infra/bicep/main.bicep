@@ -34,6 +34,9 @@ param dnsResolverOutboundSubnetName string = 'DNSOutboundSubnet'
 @description('DNS resolver outbound subnet prefix')
 param dnsResolverOutboundSubnetPrefix string = '10.0.3.0/28'
 
+@description('Client IP address pool for VPN Gateway Point-to-Site connections')
+param vpnClientAddressPoolPrefix string = '172.16.202.0/24'
+
 @description('VPN Gateway SKU')
 @allowed([
   'VpnGw1'
@@ -51,6 +54,13 @@ param tags object = {
   ManagedBy: 'Bicep'
   Project: 'HubNetwork'
 }
+
+@description('List of all the dns zones to create')
+param dnsZones array = [
+  'privatelink.azure-api.net'
+  'privatelink.azurewebsites.net'
+  'privatelink.azurecr.io'
+]
 
 module resourceGroup 'br/public:avm/res/resources/resource-group:0.4.1' = {
   name: 'resourceGroupDeployment'
@@ -128,7 +138,7 @@ module vpnGateway 'br/public:avm/res/network/virtual-network-gateway:0.8.0' = {
         'OpenVPN'
       ]
     }
-    vpnClientAddressPoolPrefix: '172.16.202.0/24'
+    vpnClientAddressPoolPrefix: vpnClientAddressPoolPrefix
     vpnGatewayGeneration: 'Generation1'
     vpnType: 'RouteBased'
   }
@@ -156,6 +166,15 @@ module dnsResolver 'br/public:avm/res/network/dns-resolver:0.5.4' = {
     tags: tags
   }
 }
+
+module privateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = [for dnsZone in dnsZones: {
+  name: 'privateDnsZoneDeployment-${dnsZone}'
+  scope: az.resourceGroup(resourceGroupName)
+  params: {
+    name: dnsZone
+    location: 'global'
+  }
+}]
 
 // Outputs
 output resourceGroupName string = resourceGroup.outputs.name

@@ -10,6 +10,7 @@ param dnsResolverInboundSubnetName = 'DNSInboundSubnet'
 param dnsResolverInboundSubnetPrefix = '10.3.2.0/28'
 param dnsResolverOutboundSubnetName = 'DNSOutboundSubnet'
 param dnsResolverOutboundSubnetPrefix = '10.3.3.0/28'
+param vpnClientAddressPoolPrefix = '172.16.202.0/24'
 param vpnGatewaySku = 'VpnGw1'
 param tags = {
   Environment: 'dev'
@@ -17,3 +18,8 @@ param tags = {
   Pipeline: 'GHActions'
   Project: 'HubNetwork'
 }
+param dnsZones = [
+  'privatelink.azure-api.net'
+  'privatelink.azurewebsites.net'
+  'privatelink.azurecr.io'
+]
