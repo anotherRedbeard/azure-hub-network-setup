@@ -86,12 +86,59 @@ jobs:
           VNET_NAME=$(jq -r '.properties.outputs.vnetName.value' deployment-output.json)
           DNS_RESOLVER_INBOUND_IP=$(jq -r '.properties.outputs.dnsResolverInboundEndpointIp.value' deployment-output.json)
           
+          # Generate VPN client configuration
+          echo "Generating VPN client configuration..."
+          az network vnet-gateway vpn-client generate \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --name $VPN_GATEWAY_NAME \
+            --authentication-method EAPTLS \
+            --output json > vpn-client-config.json
+          
+          # Extract VPN client configuration URL
+          VPN_CONFIG_URL=$(jq -r '.vpnClientConfiguration.vpnClientUrl' vpn-client-config.json)
+          
+          # Download and extract VPN client configuration
+          echo "Downloading VPN client configuration package..."
+          curl -L -o vpn-client-package.zip "$VPN_CONFIG_URL"
+          unzip -q vpn-client-package.zip
+          
+          # Extract DNS resolver IP (removing the resource ID path to get just the IP)
+          DNS_SERVER_IP=$(echo $DNS_RESOLVER_INBOUND_IP | sed 's/.*\///')
+          
           # Save to environment
           echo "vpn_gateway_name=$VPN_GATEWAY_NAME" >> $GITHUB_OUTPUT
           echo "vpn_gateway_public_ip=$VPN_GATEWAY_PUBLIC_IP" >> $GITHUB_OUTPUT
           echo "resource_group_name=$RESOURCE_GROUP_NAME" >> $GITHUB_OUTPUT
           echo "vnet_name=$VNET_NAME" >> $GITHUB_OUTPUT
-          echo "dns_resolver_inbound_ip=$DNS_RESOLVER_INBOUND_IP" >> $GITHUB_OUTPUT
+          echo "dns_resolver_inbound_ip=$DNS_SERVER_IP" >> $GITHUB_OUTPUT
+          
+          # Process both Azure VPN Client and OpenVPN configurations
+          AZUREVPN_FILE=$(find . -name "*.azurevpn" -type f | head -1)
+          OVPN_FILE=$(find . -name "*.ovpn" -type f | head -1)
+          
+          # Handle Azure VPN Client configuration
+          if [ -n "$AZUREVPN_FILE" ]; then
+            echo "Found Azure VPN Client configuration file: $AZUREVPN_FILE"
+            cp "$AZUREVPN_FILE" "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            
+            # Modify the Azure VPN Client config to include DNS settings
+            # Note: Azure VPN Client configurations are XML-based
+            sed -i.bak "s|</clientconfig>|  <dnsservers>$DNS_SERVER_IP</dnsservers>\n</clientconfig>|" "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+          fi
+          
+          # Handle OpenVPN configuration
+          if [ -n "$OVPN_FILE" ]; then
+            echo "Found OpenVPN configuration file: $OVPN_FILE"
+            
+            # Add DNS server configuration to the OpenVPN config
+            cp "$OVPN_FILE" "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
+            
+            # Add DNS configuration to the OVPN file
+            echo "" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
+            echo "# DNS Configuration - Azure Private DNS Resolver" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
+            echo "dhcp-option DNS $DNS_SERVER_IP" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
+            echo "dhcp-option DOMAIN internal.cloudapp.net" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
+          fi
           
           # Create VPN configuration file
           cat > vpn-configuration.txt <<EOF
@@ -110,31 +157,46 @@ jobs:
           
           DNS Resolver Details:
           --------------------
-          Inbound Endpoint IP: $DNS_RESOLVER_INBOUND_IP
+          Inbound Endpoint IP: $DNS_SERVER_IP
           
-          Next Steps:
-          ----------
-          1. Create a Local Network Gateway for your on-premises network
-          2. Create a VPN Connection between the VPN Gateway and Local Network Gateway
-          3. Configure your on-premises VPN device with the shared key
-          4. Test connectivity between networks
+          VPN Client Configuration:
+          ------------------------
+          Two VPN client configurations are provided:
           
-          Example commands:
+          1. Azure VPN Client (Recommended):
+             - File: azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn
+             - Download Azure VPN Client from Microsoft Store/App Store
+             - Better Azure AD integration and user experience
           
-          # Create Local Network Gateway (replace with your values)
-          az network local-gateway create \\
-            --resource-group $RESOURCE_GROUP_NAME \\
-            --name lng-onprem \\
-            --gateway-ip-address <YOUR_ONPREM_PUBLIC_IP> \\
-            --local-address-prefixes <YOUR_ONPREM_ADDRESS_SPACE>
+          2. OpenVPN Client (Alternative):
+             - File: azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn
+             - Use with OpenVPN Connect or other OpenVPN clients
+             - More universal compatibility
           
-          # Create VPN Connection
-          az network vpn-connection create \\
-            --resource-group $RESOURCE_GROUP_NAME \\
-            --name cn-hub-to-onprem \\
-            --vnet-gateway1 $VPN_GATEWAY_NAME \\
-            --local-gateway2 lng-onprem \\
-            --shared-key <YOUR_SHARED_KEY>
+          Both configurations include:
+          - DNS Server: $DNS_SERVER_IP
+          - Domain suffix: internal.cloudapp.net
+          
+          Installation Instructions:
+          -------------------------
+          
+          For Azure VPN Client:
+          1. Install Azure VPN Client from Microsoft Store (Windows) or App Store (macOS/iOS)
+          2. Download the azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn file
+          3. Import the .azurevpn profile into Azure VPN Client
+          4. Connect using your Azure AD credentials
+          
+          For OpenVPN Client:
+          1. Install OpenVPN Connect or compatible client
+          2. Download the azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn file
+          3. Import the .ovpn configuration file
+          4. Connect using your Azure AD credentials
+          
+          Testing DNS Resolution:
+          ----------------------
+          After connecting to VPN, test DNS resolution:
+          - nslookup internal.cloudapp.net $DNS_SERVER_IP
+          - nslookup <your-private-resource-name>.internal.cloudapp.net
           
           ========================================
           EOF
@@ -147,7 +209,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vpn-configuration-${{ github.event.inputs.environment }}
-          path: vpn-configuration.txt
+          path: |
+            vpn-configuration.txt
+            azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn
+            azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn
           retention-days: 90
 
       - name: Summary
