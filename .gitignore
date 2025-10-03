@@ -1,6 +1,7 @@
 # Azure deployment outputs
 deployment-output.json
 vpn-configuration.txt
+scripts/output
 
 # Bicep generated ARM template files (build output)
 infra/bicep/**/*.json
