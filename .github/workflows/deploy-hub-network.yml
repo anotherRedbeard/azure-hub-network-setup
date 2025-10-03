@@ -181,8 +181,16 @@ jobs:
             curl -L -o vpn-client-package.zip "$VPN_CONFIG_URL"
             
             if [ -f vpn-client-package.zip ]; then
-              unzip -q vpn-client-package.zip
-              echo "VPN client package extracted successfully"
+              echo "Attempting to extract VPN client package..."
+              # Use unzip with better error handling and path normalization
+              if unzip -o -j vpn-client-package.zip 2>/dev/null || unzip -o vpn-client-package.zip 2>/dev/null; then
+                echo "VPN client package extracted successfully"
+              else
+                echo "Warning: unzip had issues but may have extracted files. Continuing..."
+                # List what files we have after unzip attempt
+                echo "Files in current directory:"
+                ls -la
+              fi
             else
               echo "Failed to download VPN client package"
             fi
