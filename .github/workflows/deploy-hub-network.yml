@@ -122,8 +122,9 @@ jobs:
               exit 1
             fi
             
-            VPN_GATEWAY_PUBLIC_IP=$(echo "$VPN_GATEWAY_INFO" | jq -r '.ipConfigurations[0].publicIpAddress.id' | xargs az network public-ip show --ids --query ipAddress --output tsv)
-            
+            VPN_GATEWAY_PUBLIC_IP_ID=$(echo "$VPN_GATEWAY_INFO" | jq -r '.ipConfigurations[0].publicIPAddress.id')
+            VPN_GATEWAY_PUBLIC_IP=$(az network public-ip show --ids $VPN_GATEWAY_PUBLIC_IP_ID --query ipAddress --output tsv)
+
             # Get DNS Resolver inbound endpoint IP
             echo "Getting DNS Resolver details..."
             DNS_RESOLVER_INBOUND_ENDPOINTS=$(az dns-resolver inbound-endpoint list \
