@@ -125,9 +125,9 @@ jobs:
         with:
           name: vpn-configuration-${{ github.event.inputs.environment }}
           path: |
-            ./vpn-configuration.txt
-            ./azurevpnconfig.xml
-            ./azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn
+            ./output/vpn-configuration.txt
+            ./output/azurevpnconfig.xml
+            ./output/azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn
           retention-days: 90
 
       - name: Summary
