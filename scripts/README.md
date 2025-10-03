@@ -48,7 +48,7 @@ This script extracts VPN client configuration from an Azure VPN Gateway and conf
 The script generates the following files:
 
 1. **`vpn-configuration.txt`** - Comprehensive setup instructions and details
-2. **`azure-hub-vpn-{environment}.azurevpn`** - Azure VPN Client profile
+2. **`azurevpnconfig.xml`** - Azure VPN Client profile with DNS resolver integration
 3. **`azure-hub-vpn-{environment}.ovpn`** - OpenVPN profile (if available)
 
 ## Expected Resource Naming Convention
