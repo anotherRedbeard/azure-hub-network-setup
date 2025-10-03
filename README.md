@@ -144,6 +144,7 @@ The workflow creates and uploads the following files as artifacts:
 ### Client Setup Instructions
 
 #### For Azure VPN Client (Recommended)
+
 1. Download the workflow artifacts containing `azurevpnconfig.xml`
 2. Install Azure VPN Client:
    - **Windows**: Microsoft Store
@@ -154,6 +155,7 @@ The workflow creates and uploads the following files as artifacts:
 4. Connect using your Azure AD credentials
 
 #### For OpenVPN Client
+
 1. Download the workflow artifacts containing the `.ovpn` file
 2. Install OpenVPN client on your device
 3. Import the `.ovpn` profile
@@ -162,6 +164,7 @@ The workflow creates and uploads the following files as artifacts:
 ### DNS Resolution
 
 Both VPN configurations are automatically configured with the Private DNS Resolver IP, enabling seamless access to:
+
 - Private Azure resources (Storage Accounts, Key Vaults, etc.)
 - Resources in peered virtual networks
 - Custom private DNS zones
@@ -226,12 +229,14 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
 #### Phase 1: Pre-Deployment Setup
 
 1. **Fork or Clone Repository**
+
    ```bash
    git clone https://github.com/yourusername/azure-hub-network-setup.git
    cd azure-hub-network-setup
    ```
 
 2. **Create Azure Service Principal**
+
    ```bash
    # Create service principal with contributor access
    az ad sp create-for-rbac --name "gh-actions-hub-network" \
@@ -243,6 +248,7 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
    ```
 
 3. **Configure Federated Credentials (Recommended)**
+
    ```bash
    # Replace placeholders with your values
    az ad app federated-credential create \
@@ -256,16 +262,16 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
    ```
 
 4. **Configure GitHub Secrets**
-   
+
    Go to your GitHub repository → Settings → Secrets and variables → Actions
-   
+
    Add these repository secrets:
    - `AZURE_CLIENT_ID`: Client ID from service principal creation
    - `ENTRA_TENANT_ID`: Your Azure tenant ID
    - `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
 
 5. **Customize Environment Parameters (Optional)**
-   
+
    Edit `infra/bicep/main.dev.bicepparam` and `infra/bicep/main.prd.bicepparam`:
    - Adjust IP address ranges if they conflict with your existing networks
    - Modify VPN Gateway SKU based on your performance needs
@@ -306,6 +312,7 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
    - ✅ DNS forwarding rules established
 
 3. **Test Connectivity**
+
    ```bash
    # After connecting to VPN, test DNS resolution
    nslookup mystorageaccount.blob.core.windows.net
@@ -316,8 +323,9 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
 **🔧 Advanced Configuration (As Needed):**
 
 4. **Peer Additional Virtual Networks**
-   
+
    For each VNet you want to access via VPN:
+
    ```bash
    # Create peering from hub to spoke
    az network vnet peering create \
@@ -335,18 +343,19 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
    ```
 
 5. **Update VPN Client Address Routes** (If accessing peered VNets)
-   
+
    Currently, VPN clients can access:
    - Hub VNet: `10.3.0.0/16` (dev) or `10.4.0.0/16` (prod)
    - Azure PaaS services via private endpoints
-   
+
    To access additional peered VNets, you may need to:
-   - Add routes to the VPN Gateway configuration
+   - Add routes to the VPN Gateway Point-to-Site configuration
    - Or use the hub's DNS resolver for routing
 
 ### 🔄 Ongoing Management
 
 **Extracting VPN Config Without Re-deployment:**
+
 ```bash
 # Use the extract-vpn workflow action to get configs anytime
 # Or run locally:
@@ -354,11 +363,13 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
 ```
 
 **Adding New Users:**
+
 - No additional configuration needed
 - Users connect with their existing Azure AD credentials
 - Access is controlled via Azure AD group membership
 
 **Scaling Considerations:**
+
 - Monitor VPN Gateway metrics for connection limits
 - Upgrade VPN Gateway SKU if needed (VpnGw1 → VpnGw2 → VpnGw3)
 - Consider VPN Gateway AZ variants for high availability
@@ -366,10 +377,12 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
 ### 💡 Automation Opportunities
 
 **Current Manual Steps That Could Be Automated:**
+
 1. **VNet Peering**: Could be automated via additional Bicep modules
 2. **Route Table Updates**: Could use Azure Route Server for dynamic routing
 
 **Future Enhancement Ideas:**
+
 - Azure DevOps pipeline alternative
 - Monitoring and alerting automation
 - Cost optimization automation
