@@ -19,6 +19,7 @@ on:
           - deploy
           - validate
           - what-if
+          - extract-vpn
         default: validate
 
 permissions:
@@ -74,17 +75,73 @@ jobs:
           cat deployment-output.json
 
       - name: Extract VPN Configuration
-        if: github.event.inputs.action == 'deploy'
+        if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'extract-vpn'
         id: vpn-config
         run: |
           echo "Extracting VPN configuration..."
           
-          # Extract outputs from deployment
-          VPN_GATEWAY_NAME=$(jq -r '.properties.outputs.vpnGatewayName.value' deployment-output.json)
-          VPN_GATEWAY_PUBLIC_IP=$(jq -r '.properties.outputs.vpnGatewayPublicIp.value' deployment-output.json)
-          RESOURCE_GROUP_NAME=$(jq -r '.properties.outputs.resourceGroupName.value' deployment-output.json)
-          VNET_NAME=$(jq -r '.properties.outputs.vnetName.value' deployment-output.json)
-          DNS_RESOLVER_INBOUND_IP=$(jq -r '.properties.outputs.dnsResolverInboundEndpointIp.value' deployment-output.json)
+          if [ "${{ github.event.inputs.action }}" == "deploy" ]; then
+            # Extract outputs from deployment
+            echo "Using deployment outputs..."
+            VPN_GATEWAY_NAME=$(jq -r '.properties.outputs.vpnGatewayName.value' deployment-output.json)
+            VPN_GATEWAY_PUBLIC_IP=$(jq -r '.properties.outputs.vpnGatewayPublicIp.value' deployment-output.json)
+            RESOURCE_GROUP_NAME=$(jq -r '.properties.outputs.resourceGroupName.value' deployment-output.json)
+            VNET_NAME=$(jq -r '.properties.outputs.vnetName.value' deployment-output.json)
+            DNS_RESOLVER_INBOUND_IP=$(jq -r '.properties.outputs.dnsResolverInboundEndpointIp.value' deployment-output.json)
+          else
+            # Extract from existing resources
+            echo "Looking up existing resources..."
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+            RESOURCE_GROUP_NAME="auto-${ENVIRONMENT}-hub-network-rg"
+            VPN_GATEWAY_NAME="auto-hub-${ENVIRONMENT}-vpngw"
+            DNS_RESOLVER_NAME="auto-hub-${ENVIRONMENT}-dnspr"
+            VNET_NAME="auto-hub-${ENVIRONMENT}-vnet"
+            
+            echo "Looking for resources:"
+            echo "- Resource Group: $RESOURCE_GROUP_NAME"
+            echo "- VPN Gateway: $VPN_GATEWAY_NAME" 
+            echo "- DNS Resolver: $DNS_RESOLVER_NAME"
+            echo "- Virtual Network: $VNET_NAME"
+            
+            # Check if resources exist
+            if ! az group show --name $RESOURCE_GROUP_NAME > /dev/null 2>&1; then
+              echo "❌ Resource group $RESOURCE_GROUP_NAME not found"
+              echo "Please deploy the infrastructure first or check the resource group name"
+              exit 1
+            fi
+            
+            # Get VPN Gateway details
+            echo "Getting VPN Gateway details..."
+            VPN_GATEWAY_INFO=$(az network vnet-gateway show \
+              --resource-group $RESOURCE_GROUP_NAME \
+              --name $VPN_GATEWAY_NAME \
+              --output json)
+            
+            if [ $? -ne 0 ]; then
+              echo "❌ VPN Gateway $VPN_GATEWAY_NAME not found in $RESOURCE_GROUP_NAME"
+              exit 1
+            fi
+            
+            VPN_GATEWAY_PUBLIC_IP=$(echo "$VPN_GATEWAY_INFO" | jq -r '.ipConfigurations[0].publicIpAddress.id' | xargs az network public-ip show --ids --query ipAddress --output tsv)
+            
+            # Get DNS Resolver inbound endpoint IP
+            echo "Getting DNS Resolver details..."
+            DNS_RESOLVER_INBOUND_ENDPOINTS=$(az dns-resolver inbound-endpoint list \
+              --resource-group $RESOURCE_GROUP_NAME \
+              --dns-resolver-name $DNS_RESOLVER_NAME \
+              --output json)
+            
+            if [ $? -ne 0 ]; then
+              echo "❌ DNS Resolver $DNS_RESOLVER_NAME not found in $RESOURCE_GROUP_NAME"
+              exit 1
+            fi
+            
+            DNS_RESOLVER_INBOUND_IP=$(echo "$DNS_RESOLVER_INBOUND_ENDPOINTS" | jq -r '.[0].ipConfigurations[0].privateIpAddress')
+            
+            echo "✅ Found resources:"
+            echo "- VPN Gateway Public IP: $VPN_GATEWAY_PUBLIC_IP"
+            echo "- DNS Server IP: $DNS_RESOLVER_INBOUND_IP"
+          fi
           
           # Generate VPN client configuration
           echo "Generating VPN client configuration..."
@@ -94,13 +151,43 @@ jobs:
             --authentication-method EAPTLS \
             --output json > vpn-client-config.json
           
-          # Extract VPN client configuration URL
-          VPN_CONFIG_URL=$(jq -r '.vpnClientConfiguration.vpnClientUrl' vpn-client-config.json)
+          # Debug: Show the actual response
+          echo "VPN client configuration response:"
+          cat vpn-client-config.json
           
-          # Download and extract VPN client configuration
-          echo "Downloading VPN client configuration package..."
-          curl -L -o vpn-client-package.zip "$VPN_CONFIG_URL"
-          unzip -q vpn-client-package.zip
+          # Check if the response contains an error or the expected structure
+          if jq -e '.error' vpn-client-config.json > /dev/null 2>&1; then
+            echo "Error in VPN client configuration generation:"
+            jq -r '.error.message' vpn-client-config.json
+            echo "Skipping VPN client package download..."
+            VPN_CONFIG_URL=""
+          elif jq -e '.' vpn-client-config.json | grep -q '"https://'; then
+            # The response might be a direct URL string
+            VPN_CONFIG_URL=$(jq -r '.' vpn-client-config.json)
+            echo "Found VPN configuration URL: $VPN_CONFIG_URL"
+          elif jq -e '.vpnClientConfiguration.vpnClientUrl' vpn-client-config.json > /dev/null 2>&1; then
+            # Standard response structure
+            VPN_CONFIG_URL=$(jq -r '.vpnClientConfiguration.vpnClientUrl' vpn-client-config.json)
+            echo "Found VPN configuration URL: $VPN_CONFIG_URL"
+          else
+            echo "Unable to extract VPN configuration URL from response"
+            VPN_CONFIG_URL=""
+          fi
+          
+          # Download and extract VPN client configuration if URL is available
+          if [ -n "$VPN_CONFIG_URL" ] && [ "$VPN_CONFIG_URL" != "null" ]; then
+            echo "Downloading VPN client configuration package..."
+            curl -L -o vpn-client-package.zip "$VPN_CONFIG_URL"
+            
+            if [ -f vpn-client-package.zip ]; then
+              unzip -q vpn-client-package.zip
+              echo "VPN client package extracted successfully"
+            else
+              echo "Failed to download VPN client package"
+            fi
+          else
+            echo "No VPN configuration URL available - will create manual configuration instructions"
+          fi
           
           # Extract DNS resolver IP (removing the resource ID path to get just the IP)
           DNS_SERVER_IP=$(echo $DNS_RESOLVER_INBOUND_IP | sed 's/.*\///')
@@ -116,6 +203,8 @@ jobs:
           AZUREVPN_FILE=$(find . -name "*.azurevpn" -type f | head -1)
           OVPN_FILE=$(find . -name "*.ovpn" -type f | head -1)
           
+          VPN_CONFIG_AVAILABLE=false
+          
           # Handle Azure VPN Client configuration
           if [ -n "$AZUREVPN_FILE" ]; then
             echo "Found Azure VPN Client configuration file: $AZUREVPN_FILE"
@@ -124,6 +213,7 @@ jobs:
             # Modify the Azure VPN Client config to include DNS settings
             # Note: Azure VPN Client configurations are XML-based
             sed -i.bak "s|</clientconfig>|  <dnsservers>$DNS_SERVER_IP</dnsservers>\n</clientconfig>|" "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            VPN_CONFIG_AVAILABLE=true
           fi
           
           # Handle OpenVPN configuration
@@ -138,6 +228,26 @@ jobs:
             echo "# DNS Configuration - Azure Private DNS Resolver" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
             echo "dhcp-option DNS $DNS_SERVER_IP" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
             echo "dhcp-option DOMAIN internal.cloudapp.net" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.ovpn"
+            VPN_CONFIG_AVAILABLE=true
+          fi
+          
+          # If no configuration files were found, create manual configuration instructions
+          if [ "$VPN_CONFIG_AVAILABLE" = false ]; then
+            echo "No VPN configuration files found - creating manual setup instructions"
+            
+            # Create a basic Azure VPN Client configuration template
+            echo '<?xml version="1.0" encoding="utf-8"?>' > "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '<AzureProfile xmlns="http://schemas.microsoft.com/azure/vpnclient/profile/2019/07/01">' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '  <clientconfig>' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo "    <name>Azure Hub VPN - ${{ github.event.inputs.environment }}</name>" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo "    <vpnserver>$VPN_GATEWAY_PUBLIC_IP</vpnserver>" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo "    <dnsservers>$DNS_SERVER_IP</dnsservers>" >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '    <trustednetworkdetection />' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '    <authentication>' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '      <authenticationtype>AAD</authenticationtype>' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '    </authentication>' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '  </clientconfig>' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
+            echo '</AzureProfile>' >> "azure-hub-vpn-${{ github.event.inputs.environment }}.azurevpn"
           fi
           
           # Create VPN configuration file
@@ -205,7 +315,7 @@ jobs:
           cat vpn-configuration.txt
 
       - name: Upload VPN Configuration
-        if: github.event.inputs.action == 'deploy'
+        if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'extract-vpn'
         uses: actions/upload-artifact@v4
         with:
           name: vpn-configuration-${{ github.event.inputs.environment }}
@@ -216,7 +326,7 @@ jobs:
           retention-days: 90
 
       - name: Summary
-        if: github.event.inputs.action == 'deploy'
+        if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'extract-vpn'
         run: |
           echo "## Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
