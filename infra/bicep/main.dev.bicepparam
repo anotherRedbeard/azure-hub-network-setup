@@ -12,6 +12,7 @@ param dnsResolverOutboundSubnetName = 'DNSOutboundSubnet'
 param dnsResolverOutboundSubnetPrefix = '10.3.3.0/28'
 param vpnClientAddressPoolPrefix = '172.16.202.0/24'
 param vpnGatewaySku = 'VpnGw1'
+param dnsForwardingRulesetName = 'auto-hub-dev-dnsfr'
 param tags = {
   Environment: 'dev'
   ManagedBy: 'Bicep'

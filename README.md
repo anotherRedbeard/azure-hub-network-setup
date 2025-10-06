@@ -1,6 +1,6 @@
 # Azure Hub Network Setup
 
-This repository contains Infrastructure as Code (IaC) for deploying an Azure hub network with VPN Gateway and Private DNS Resolver using Bicep and GitHub Actions.
+This repository contains Infrastructure as Code (IaC) for deploying an Azure hub network with VPN Gateway and Private DNS Resolver using Bicep and GitHub Actions. This is meant to be an example for an individual to follow to learn and implement a hub network architecture in their own Azure subscription. I wouldn't recommend using this code as-is in a production environment without further customization and review.
 
 ## Overview
 
@@ -54,7 +54,8 @@ Azure Hub Network
 │           └── dns-resolver.bicep    # DNS Resolver module
 ├── scripts/
 │   ├── README.md                     # Script documentation
-│   └── extract-vpn-config.sh         # VPN configuration extraction tool
+│   ├── extract-vpn-config.sh         # VPN configuration extraction tool
+│   └── setup-hub-spoke-peering.sh    # Hub-spoke peering automation tool
 ├── validate-deployment.sh            # Pre-deployment validation
 └── README.md
 ```
@@ -322,9 +323,33 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
 
 **🔧 Advanced Configuration (As Needed):**
 
-4. **Peer Additional Virtual Networks**
+4. **Peer Additional Virtual Networks** (Automated)
 
-   For each VNet you want to access via VPN:
+   Use the provided script to automatically create peering and configure VPN routes:
+
+   ```bash
+   # Basic hub-spoke peering with VPN route configuration
+   ./scripts/setup-hub-spoke-peering.sh \
+     -e dev \
+     -s '/subscriptions/{sub-id}/resourceGroups/{spoke-rg}/providers/Microsoft.Network/virtualNetworks/{spoke-vnet}' \
+     -a '10.1.0.0/16'
+   
+   # For production environment
+   ./scripts/setup-hub-spoke-peering.sh \
+     -e prod \
+     -s '/subscriptions/{sub-id}/resourceGroups/{spoke-rg}/providers/Microsoft.Network/virtualNetworks/{spoke-vnet}' \
+     -a '10.2.0.0/16'
+   ```
+
+   **What this script does:**
+   - ✅ Creates bidirectional VNet peering (hub ↔ spoke)
+   - ✅ Configures gateway transit for VPN access
+   - ✅ Automatically updates VPN client routes
+   - ✅ Validates connectivity and configuration
+
+   **Manual alternative** (if needed):
+   <details>
+   <summary>Click to expand manual Azure CLI commands</summary>
 
    ```bash
    # Create peering from hub to spoke
@@ -332,25 +357,30 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
      --resource-group auto-dev-hub-network-rg \
      --name hub-to-spoke-vnet \
      --vnet-name auto-hub-dev-vnet \
-     --remote-vnet /subscriptions/{sub-id}/resourceGroups/{spoke-rg}/providers/Microsoft.Network/virtualNetworks/{spoke-vnet}
+     --remote-vnet /subscriptions/{sub-id}/resourceGroups/{spoke-rg}/providers/Microsoft.Network/virtualNetworks/{spoke-vnet} \
+     --allow-gateway-transit
    
    # Create reverse peering from spoke to hub
    az network vnet peering create \
      --resource-group {spoke-rg} \
      --name spoke-to-hub-vnet \
      --vnet-name {spoke-vnet} \
-     --remote-vnet /subscriptions/{sub-id}/resourceGroups/auto-dev-hub-network-rg/providers/Microsoft.Network/virtualNetworks/auto-hub-dev-vnet
+     --remote-vnet /subscriptions/{sub-id}/resourceGroups/auto-dev-hub-network-rg/providers/Microsoft.Network/virtualNetworks/auto-hub-dev-vnet \
+     --use-remote-gateways
    ```
+   </details>
 
-5. **Update VPN Client Address Routes** (If accessing peered VNets)
+5. **VPN Client Access to Peered VNets** (Automatic)
 
-   Currently, VPN clients can access:
-   - Hub VNet: `10.3.0.0/16` (dev) or `10.4.0.0/16` (prod)
-   - Azure PaaS services via private endpoints
+   After peering is established, VPN clients automatically gain access to:
+   - **Hub VNet**: `10.3.0.0/16` (dev) or `10.4.0.0/16` (prod)
+   - **Peered Spoke VNets**: Routes automatically propagated via gateway transit
+   - **Azure PaaS services**: Via private endpoints in any peered VNet
 
-   To access additional peered VNets, you may need to:
-   - Add routes to the VPN Gateway Point-to-Site configuration
-   - Or use the hub's DNS resolver for routing
+   **Route propagation is automatic** - no manual configuration needed!
+   - Routes appear in VPN client routing tables within 5-10 minutes
+   - VPN clients can reach resources in peered VNets seamlessly
+   - DNS resolution works through the hub's Private DNS Resolver
 
 ### 🔄 Ongoing Management
 
@@ -374,18 +404,27 @@ Follow this step-by-step guide to implement the Azure Hub Network in your subscr
 - Upgrade VPN Gateway SKU if needed (VpnGw1 → VpnGw2 → VpnGw3)
 - Consider VPN Gateway AZ variants for high availability
 
-### 💡 Automation Opportunities
+### 💡 Automation Status
 
-**Current Manual Steps That Could Be Automated:**
+**✅ Fully Automated:**
 
-1. **VNet Peering**: Could be automated via additional Bicep modules
-2. **Route Table Updates**: Could use Azure Route Server for dynamic routing
+1. **Infrastructure Deployment**: Complete Bicep-based IaC
+2. **VPN Configuration**: Automated client config generation
+3. **VNet Peering**: Automated via `setup-hub-spoke-peering.sh` script
+4. **VPN Route Updates**: Automatic route propagation to clients
+5. **DNS Integration**: Private DNS resolver with pre-configured zones
 
-**Future Enhancement Ideas:**
+**🔧 Manual Steps Remaining:**
 
-- Azure DevOps pipeline alternative
-- Monitoring and alerting automation
-- Cost optimization automation
+1. **Custom DNS Zone Creation**: Could be parameterized in Bicep
+2. **Route Server Integration**: For complex routing scenarios
+
+**💡 Future Enhancement Ideas:**
+
+- **Terraform Alternative**: For multi-cloud organizations
+- **Azure DevOps Pipeline**: Alternative to GitHub Actions
+- **Monitoring Automation**: Azure Monitor workspace setup
+- **Cost Optimization**: Automated resource scaling based on usage
 
 ## Troubleshooting
 

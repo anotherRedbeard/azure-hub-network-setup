@@ -48,6 +48,9 @@ param vpnClientAddressPoolPrefix string = '172.16.202.0/24'
 ])
 param vpnGatewaySku string = 'VpnGw1'
 
+@description('DNS Forwarding Ruleset name')
+param dnsForwardingRulesetName string = 'auto-hub-${environmentName}-dnsfr'
+
 @description('Tags to apply to all resources')
 param tags object = {
   Environment: environmentName
@@ -184,6 +187,20 @@ module privateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = [for 
     ]
   }
 }]
+
+module dnsForwardingRuleset 'br/public:avm/res/network/dns-forwarding-ruleset:0.5.2' = {
+  name: 'dnsForwardingRulesetDeployment'
+  scope: az.resourceGroup(resourceGroupName)
+  params: {
+    // Required parameters
+    dnsForwardingRulesetOutboundEndpointResourceIds: [
+      dnsResolver.outputs.outboundEndpointsObject[0].resourceId
+    ]
+    name: dnsForwardingRulesetName
+    // Non-required parameters
+    location: location
+  }
+}
 
 // Outputs
 output resourceGroupName string = resourceGroup.outputs.name
