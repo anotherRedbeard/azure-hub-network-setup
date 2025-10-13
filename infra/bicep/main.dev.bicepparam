@@ -20,7 +20,10 @@ param tags = {
   Project: 'HubNetwork'
 }
 param dnsZones = [
-  'privatelink.azure-api.net'
+  'azure-api.net'
   'privatelink.azurewebsites.net'
   'privatelink.azurecr.io'
+  'privatelink.cognitiveservices.azure.com'
+  'privatelink.openai.azure.com'
+  'privatelink.services.ai.azure.com'
 ]
