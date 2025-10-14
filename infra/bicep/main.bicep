@@ -48,9 +48,6 @@ param vpnClientAddressPoolPrefix string = '172.16.202.0/24'
 ])
 param vpnGatewaySku string = 'VpnGw1'
 
-@description('DNS Forwarding Ruleset name')
-param dnsForwardingRulesetName string = 'auto-hub-${environmentName}-dnsfr'
-
 @description('Tags to apply to all resources')
 param tags object = {
   Environment: environmentName
@@ -173,14 +170,12 @@ module dnsResolver 'br/public:avm/res/network/dns-resolver:0.5.4' = {
 module privateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = [for dnsZone in dnsZones: {
   name: 'privateDnsZoneDeployment-${dnsZone}'
   scope: az.resourceGroup(resourceGroupName)
-  dependsOn: [
-    virtualNetwork
-  ]
   params: {
     name: dnsZone
     location: 'global'
     virtualNetworkLinks: [
       {
+        name: '${virtualNetwork.outputs.name}-vnetlink'
         registrationEnabled: false
         virtualNetworkResourceId: virtualNetwork.outputs.resourceId
       }
@@ -193,8 +188,8 @@ output resourceGroupName string = resourceGroup.outputs.name
 output vnetId string = virtualNetwork.outputs.resourceId
 output vnetName string = virtualNetwork.outputs.name
 output vpnGatewayId string = vpnGateway.outputs.resourceId
-//join the possible public IPs into a single comma-separated string
-output vpnGatewayPublicIp string = join([vpnGateway.outputs.primaryPublicIpAddress, vpnGateway.outputs.secondaryPublicIpAddress, vpnGateway.outputs.tertiaryPublicIpAddress], ',')
+//primary public IP address
+output vpnGatewayPublicIp string = vpnGateway.outputs.primaryPublicIpAddress ?? ''
 output vpnGatewayName string = vpnGateway.outputs.name
 output dnsResolverName string = dnsResolver.outputs.name
 output dnsResolverInboundEndpointIp string = dnsResolver.outputs.inboundEndpointsObject[0].resourceId
