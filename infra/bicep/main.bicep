@@ -176,7 +176,7 @@ module privateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = [for 
     location: 'global'
     virtualNetworkLinks: [
       {
-        name: 'auto-hub-${environmentName}-vnet-vnetlink'  // Explicitly name to match existing
+        name: 'hub-vnet-link'  // Match the existing VNet link name
         virtualNetworkResourceId: virtualNetwork.outputs.resourceId
         registrationEnabled: false
       }
