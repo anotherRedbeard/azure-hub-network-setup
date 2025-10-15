@@ -167,17 +167,18 @@ module dnsResolver 'br/public:avm/res/network/dns-resolver:0.5.4' = {
   }
 }
 
+// Create Private DNS Zones with properly named VNet links
 module privateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = [for dnsZone in dnsZones: {
-  name: 'privateDnsZoneDeployment-${dnsZone}'
+  name: 'privateDnsZoneDeployment-${replace(dnsZone, '.', '-')}'
   scope: az.resourceGroup(resourceGroupName)
   params: {
     name: dnsZone
     location: 'global'
     virtualNetworkLinks: [
       {
-        name: '${virtualNetwork.outputs.name}-vnetlink'
-        registrationEnabled: false
+        name: 'auto-hub-${environmentName}-vnet-vnetlink'  // Explicitly name to match existing
         virtualNetworkResourceId: virtualNetwork.outputs.resourceId
+        registrationEnabled: false
       }
     ]
   }
